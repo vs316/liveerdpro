@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -63,7 +62,7 @@ export const generateERDFromPrompt = async (prompt: string) => {
       }
     });
 
-    const result = JSON.parse(response.text || "{}");
+    const result = JSON.parse(response.text.trim() || "{}");
     return result;
   } catch (error) {
     console.error("Gemini ERD Generation Error:", error);

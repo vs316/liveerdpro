@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo } from 'react';
 import ReactFlow, { 
   addEdge, 
@@ -15,7 +14,6 @@ import ReactFlow, {
   Node,
   ConnectionMode
 } from 'reactflow';
-import 'reactflow/dist/style.css';
 
 import EntityNode from './components/EntityNode';
 import PropertyEditor from './components/PropertyEditor';
@@ -69,7 +67,7 @@ const initialEdges: Edge[] = [
   },
 ];
 
-const App = () => {
+const AppContent = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [prompt, setPrompt] = useState('');
@@ -272,34 +270,32 @@ const App = () => {
 
         <div className="flex-1 relative flex">
           <div className={`flex-1 relative transition-all duration-300 ${showCodePreview ? 'w-1/2' : 'w-full'}`}>
-            <ReactFlowProvider>
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                nodeTypes={nodeTypes}
-                onNodeClick={onNodeClick}
-                onPaneClick={() => setSelectedNodeId(null)}
-                fitView
-                snapToGrid
-                snapGrid={[10, 10]}
-                connectionMode={ConnectionMode.Loose}
-                defaultEdgeOptions={{ 
-                  type: 'smoothstep', 
-                  style: { stroke: '#3b82f6', strokeWidth: 2 },
-                  markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' }
-                }}
-              >
-                <Background color="#1e293b" gap={20} size={1} />
-                <Controls className="!bg-[#0f172a] !border-slate-800 !shadow-2xl" />
-                <MiniMap 
-                  style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} 
-                  nodeColor="#3b82f6"
-                />
-              </ReactFlow>
-            </ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              nodeTypes={nodeTypes}
+              onNodeClick={onNodeClick}
+              onPaneClick={() => setSelectedNodeId(null)}
+              fitView
+              snapToGrid
+              snapGrid={[10, 10]}
+              connectionMode={ConnectionMode.Loose}
+              defaultEdgeOptions={{ 
+                type: 'smoothstep', 
+                style: { stroke: '#3b82f6', strokeWidth: 2 },
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' }
+              }}
+            >
+              <Background color="#1e293b" gap={20} size={1} />
+              <Controls className="!bg-[#0f172a] !border-slate-800 !shadow-2xl" />
+              <MiniMap 
+                style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} 
+                nodeColor="#3b82f6"
+              />
+            </ReactFlow>
           </div>
 
           {showCodePreview && (
@@ -336,5 +332,11 @@ const App = () => {
     </div>
   );
 };
+
+const App = () => (
+  <ReactFlowProvider>
+    <AppContent />
+  </ReactFlowProvider>
+);
 
 export default App;
