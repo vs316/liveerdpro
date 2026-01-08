@@ -1,12 +1,11 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 body {
   font-family: 'Inter', sans-serif;
   background-color: #0b0f1a;
   margin: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .mono {
