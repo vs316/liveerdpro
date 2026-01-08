@@ -1,6 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+if (!apiKey) {
+  console.warn('VITE_GEMINI_API_KEY is not set. AI features will not work. Set it in .env.local file.');
+}
+
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const ERD_SCHEMA = {
   type: Type.OBJECT,
@@ -49,9 +55,13 @@ const ERD_SCHEMA = {
 };
 
 export const generateERDFromPrompt = async (prompt: string) => {
+  if (!ai) {
+    throw new Error('Gemini API Key is not configured. Please set VITE_GEMINI_API_KEY in .env.local file.');
+  }
+
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.0-flash",
       contents: `Design an Entity Relationship Diagram (ERD) based on this description: "${prompt}". 
       Return the data in a clean structured format. 
       Ensure primary keys are specified. 
