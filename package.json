@@ -1,4 +1,3 @@
-
 {
   "name": "live-erd-pro",
   "private": true,
@@ -10,17 +9,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "1.34.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "path": "^0.12.7",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "reactflow": "11.10.1",
-    "@google/genai": "1.34.0"
+    "reactflow": "11.10.1"
   },
   "devDependencies": {
-    "vite": "^4.4.5",
-    "tailwindcss": "^3.3.3",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
     "autoprefixer": "^10.4.14",
     "postcss": "^8.4.27",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0"
+    "tailwindcss": "^3.3.3",
+    "vite": "^4.4.5"
   }
 }
