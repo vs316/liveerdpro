@@ -4,53 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LiveERD Pro - Collaborative Schema Weaver</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://esm.sh/reactflow@11.10.1/dist/style.css">
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0b0f1a; margin: 0; padding: 0; }
-        .mono { font-family: 'Fira Code', monospace; }
-        .react-flow__node { cursor: grab !important; }
-        .react-flow__node:active { cursor: grabbing !important; }
-        .react-flow__handle { 
-          width: 10px !important; 
-          height: 10px !important; 
-          background: #3b82f6 !important; 
-          border: 2px solid #0f172a !important; 
-          border-radius: 50% !important;
-        }
-        .react-flow__handle:hover {
-          background: #60a5fa !important;
-          transform: scale(1.2);
-        }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-        
-        .react-flow__attribution { display: none; }
-        .react-flow__controls button {
-          background-color: #1e293b !important;
-          border-bottom: 1px solid #334155 !important;
-          fill: #f1f5f9 !important;
-        }
-        .react-flow__controls button:hover {
-          background-color: #334155 !important;
-        }
-    </style>
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
-    "reactflow": "https://esm.sh/reactflow@11.10.1?external=react,react-dom",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
-  }
-}
-</script>
 </head>
 <body class="bg-[#0b0f1a] text-slate-100 overflow-hidden">
     <div id="root"></div>
