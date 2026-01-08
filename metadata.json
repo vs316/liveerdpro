@@ -1,0 +1,8 @@
+{
+  "name": "LiveERD Pro",
+  "description": "A high-performance collaborative ERD tool with AI-powered schema generation and real-time team synchronization features.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
