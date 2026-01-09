@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import ReactFlow, { 
   addEdge, 
   Background, 
@@ -10,24 +10,31 @@ import ReactFlow, {
   Edge,
   MarkerType,
   Node,
-  ConnectionMode
+  ConnectionMode,
+  useReactFlow,
+  ReactFlowProvider
 } from 'reactflow';
 import EntityNode from './EntityNode';
 import Sidebar from './Sidebar';
-import { generateERDFromPrompt } from '../geminiService';
-import { ERDEntity, ERDRelationship } from '../types';
+import Cursor from './Cursor';
+import { ERDEntity } from '../types';
 
 const nodeTypes = { entity: EntityNode };
 
-const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
+// Inner component to use useReactFlow hook
+const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [prompt, setPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [activeUsers, setActiveUsers] = useState<any[]>([]);
+  const [remoteCursors, setRemoteCursors] = useState<{[key: string]: any}>({});
   
+  const { project, getNodes } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef<any>(null);
+  const lastCursorUpdate = useRef(0);
+
   // History State for Undo/Redo
   const [history, setHistory] = useState<any[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -49,34 +56,95 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
     fetchDiagram();
   }, [diagramId]);
 
-  // Presence channel
+  // Presence channel and Cursor broadcasting
   useEffect(() => {
     const channel = supabase.channel(`room:${diagramId}`)
       .on('presence', { event: 'sync' }, () => {
         const newState = channel.presenceState();
-        // Flatten presence state
         const users = Object.values(newState).flat();
         setActiveUsers(users);
       })
+      .on('broadcast', { event: 'cursor' }, ({ payload }: any) => {
+        if (payload.user !== user.email) {
+          setRemoteCursors(prev => ({
+            ...prev,
+            [payload.user]: payload
+          }));
+        }
+      })
       .subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
-          await channel.track({ user: user.email, online_at: new Date().toISOString() });
+          const color = '#' + Math.floor(Math.random()*16777215).toString(16);
+          await channel.track({ 
+            user: user.email, 
+            color,
+            online_at: new Date().toISOString() 
+          });
         }
       });
+    
+    channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
   }, [diagramId, user.email]);
 
-  // Real-time synchronization
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const now = Date.now();
+    if (now - lastCursorUpdate.current > 30 && channelRef.current) {
+      // Get bounding box of the flow container to calculate relative position
+      if (canvasRef.current) {
+        const bounds = canvasRef.current.getBoundingClientRect();
+        // Calculate position relative to the canvas container (ReactFlow coordinates are different)
+        // We broadcast SCREEN (container) coordinates for simple overlay, 
+        // OR we can project to flow coordinates. 
+        // Using Container coordinates is easier for a simple overlay if all viewports match, 
+        // but flow coords are better for zoomed maps. 
+        // Let's stick to simple Flow coordinates for "Real" collaboration feeling if we could, 
+        // but `project` converts screen to flow.
+        const position = project({ x: e.clientX - bounds.left, y: e.clientY - bounds.top });
+        
+        // HOWEVER, implementing shared viewport cursor requires broadcasting Viewport too.
+        // Simplest "Live" feel: Just broadcast raw relative coordinates within the container.
+        // This ensures if I point to top-left, you see me at top-left.
+        // To accurately point at a NODE, we need Flow coordinates.
+        // Let's use flow coordinates `position` derived from `project`.
+        
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'cursor',
+          payload: { 
+            x: position.x, 
+            y: position.y, 
+            user: user.email,
+            // Find my color from activeUsers (inefficient to search every frame, maybe store locally)
+            color: '#3b82f6' // Default fallback, activeUsers usually has it
+          }
+        });
+        lastCursorUpdate.current = now;
+      }
+    }
+  }, [project, user.email]);
+
+  // Cleanup old cursors (optional: remove cursor if no update for 5s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+        // Implementation left simple for now
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Save and History Logic
   const saveDiagram = useCallback(async (newNodes: any, newEdges: any) => {
     await supabase
       .from('diagrams')
-      .update({ data: { nodes: newNodes, edges: newEdges }, updated_at: new Date().toISOString() })
+      .update({ 
+        data: { nodes: newNodes, edges: newEdges }, 
+        updated_at: new Date().toISOString() 
+      })
       .eq('id', diagramId);
   }, [diagramId]);
 
   const recordHistory = useCallback((newNodes: any, newEdges: any) => {
     const entry = JSON.stringify({ nodes: newNodes, edges: newEdges });
-    // If we are in the middle of history, discard future
     const newHistory = [...history.slice(0, historyIndex + 1), entry];
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
@@ -86,7 +154,7 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
     onNodesChange(changes);
   }, [onNodesChange]);
 
-  const undo = () => {
+  const undo = useCallback(() => {
     if (historyIndex > 0) {
       const prev = JSON.parse(history[historyIndex - 1]);
       setNodes(prev.nodes);
@@ -94,9 +162,9 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
       setHistoryIndex(historyIndex - 1);
       saveDiagram(prev.nodes, prev.edges);
     }
-  };
+  }, [history, historyIndex, saveDiagram, setNodes, setEdges]);
 
-  const redo = () => {
+  const redo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       const next = JSON.parse(history[historyIndex + 1]);
       setNodes(next.nodes);
@@ -104,7 +172,27 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
       setHistoryIndex(historyIndex + 1);
       saveDiagram(next.nodes, next.edges);
     }
-  };
+  }, [history, historyIndex, saveDiagram, setNodes, setEdges]);
+
+  // Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        redo();
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   const handleUpdateEntity = useCallback((id: string, updates: Partial<ERDEntity>) => {
     setNodes((nds) => {
@@ -137,7 +225,11 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
 
   const onConnect = useCallback((params: Connection) => {
     setEdges((eds) => {
-      const newEdges = addEdge({ ...params, animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' } }, eds);
+      const newEdges = addEdge({ 
+        ...params, 
+        animated: true, 
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' } 
+      }, eds);
       saveDiagram(nodes, newEdges);
       recordHistory(nodes, newEdges);
       return newEdges;
@@ -154,6 +246,15 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
     a.click();
   };
 
+  const exportSql = () => {
+    const blob = new Blob([mysqlCode], { type: 'text/sql' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `schema_mysql_${Date.now()}.sql`;
+    a.click();
+  };
+
   const importJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -161,22 +262,36 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
       reader.onload = (ev) => {
         try {
           const content = JSON.parse(ev.target?.result as string);
-          setNodes(content.nodes || []);
-          setEdges(content.edges || []);
+          if (!Array.isArray(content.nodes) || !Array.isArray(content.edges)) {
+            alert('Invalid JSON: file must contain "nodes" and "edges" arrays.');
+            return;
+          }
+          setNodes(content.nodes);
+          setEdges(content.edges);
           saveDiagram(content.nodes, content.edges);
           recordHistory(content.nodes, content.edges);
-        } catch (err) { alert("Invalid JSON format"); }
+        } catch (err) { 
+          console.error(err);
+          alert("Failed to parse JSON file."); 
+        }
       };
       reader.readAsText(file);
     }
+    e.target.value = '';
   };
 
   const selectedEntity = useMemo(() => 
     nodes.find(n => n.id === selectedNodeId)?.data
   , [nodes, selectedNodeId]);
 
+  // Helper to find user color
+  const getUserColor = (email: string) => {
+    const u = activeUsers.find(u => u.user === email);
+    return u?.color || '#10b981';
+  };
+
   return (
-    <div className="flex h-screen w-screen bg-[#0b0f1a] overflow-hidden text-slate-100">
+    <div className="flex h-screen w-screen bg-[#0b0f1a] overflow-hiddenQl text-slate-100">
       {/* Workspace Sidebar */}
       <aside className="w-80 bg-[#0f172a] border-r border-slate-800 flex flex-col z-30 shadow-2xl">
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
@@ -184,10 +299,10 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/></svg> Dashboard
            </button>
            <div className="flex gap-2">
-             <button onClick={undo} disabled={historyIndex <= 0} className="p-1.5 hover:bg-slate-800 disabled:opacity-30 rounded-lg">
+             <button onClick={undo} disabled={historyIndex <= 0} className="p-1.5 hover:bg-slate-800 disabled:opacity-30 rounded-lg transition-colors text-slate-400 hover:text-white" title="Undo (Ctrl+Z)">
                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l5 5m-5-5l5-5"/></svg>
              </button>
-             <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-1.5 hover:bg-slate-800 disabled:opacity-30 rounded-lg">
+             <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-1.5 hover:bg-slate-800 disabled:opacity-30 rounded-lg transition-colors text-slate-400 hover:text-white" title="Redo (Ctrl+Y)">
                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 10h-10a8 8 0 00-8 8v2m18-10l-5 5m5-5l-5-5"/></svg>
              </button>
            </div>
@@ -199,75 +314,53 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
                <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Team</h2>
                <span className="text-[10px] text-green-400 bg-green-900/20 px-2 py-0.5 rounded-full border border-green-900/30">{activeUsers.length} Online</span>
              </div>
-             <div className="flex -space-x-2 overflow-hidden py-1">
+             <div className="flex flex-wrap gap-2">
                {activeUsers.map((u: any, i) => (
-                 <div key={i} className="inline-block h-8 w-8 rounded-full ring-2 ring-[#0f172a] bg-slate-700 flex items-center justify-center text-xs font-bold text-white uppercase" title={u.user}>
-                   {u.user?.[0] || 'U'}
+                 <div key={i} className="flex items-center gap-2 bg-[#1e293b] px-3 py-1.5 rounded-lg border border-slate-700">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: u.color || '#10b981' }}></div>
+                    <span className="text-xs text-slate-300 font-medium truncate max-w-[100px]">{u.user}</span>
                  </div>
                ))}
              </div>
            </section>
 
            <section className="space-y-4">
-             <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AI Weaver</h2>
-             <textarea 
-               value={prompt} onChange={(e) => setPrompt(e.target.value)}
-               className="w-full h-24 bg-[#1e293b]/50 rounded-xl p-3 text-xs focus:outline-none border border-slate-800 placeholder:text-slate-600"
-               placeholder="Describe your model..."
-             />
-             <button onClick={async () => {
-               setIsGenerating(true);
-               const result = await generateERDFromPrompt(prompt);
-               const newNodes = result.entities.map((ent: any, idx: number) => ({
-                id: ent.id || `ent-${idx}`,
-                type: 'entity',
-                data: { ...ent, id: ent.id || `ent-${idx}` },
-                position: { x: 100 + (idx * 300), y: 150 + (idx % 2 * 200) },
-               }));
-               const newEdges = result.relationships.map((rel: any, idx: number) => ({
-                id: rel.id || `rel-${idx}`,
-                source: rel.source,
-                target: rel.target,
-                label: rel.cardinality || '1:N',
-                animated: true,
-                style: { stroke: '#3b82f6', strokeWidth: 2 },
-                markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' }
-               }));
-               setNodes(newNodes);
-               setEdges(newEdges);
-               saveDiagram(newNodes, newEdges);
-               recordHistory(newNodes, newEdges);
-               setIsGenerating(false);
-             }} className="w-full py-2 bg-blue-600 rounded-lg text-xs font-bold shadow-lg shadow-blue-600/10 hover:bg-blue-500 transition-all">
-                {isGenerating ? 'Weaving...' : 'Generate Schema'}
-             </button>
-           </section>
-
-           <section className="space-y-4">
               <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Data Operations</h2>
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={exportJson} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-colors">Export JSON</button>
-                <label className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-center cursor-pointer transition-colors">
+                <button onClick={exportJson} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-colors text-slate-300 hover:text-white">Export JSON</button>
+                <label className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-center cursor-pointer transition-colors text-slate-300 hover:text-white">
                   Import JSON
                   <input type="file" className="hidden" accept=".json" onChange={importJson} />
                 </label>
               </div>
-              <button onClick={() => setShowCodePreview(!showCodePreview)} className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-blue-400 hover:text-white transition-colors">
-                 {showCodePreview ? 'Close MySQL Panel' : 'View MySQL Code'}
+              <button onClick={exportSql} className="w-full py-2 bg-blue-600/10 border border-blue-600/20 hover:bg-blue-600/20 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors">
+                Download MySQL
+              </button>
+              <button onClick={() => setShowCodePreview(!showCodePreview)} className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors">
+                 {showCodePreview ? 'Close Code Panel' : 'View Code Panel'}
               </button>
            </section>
         </div>
       </aside>
 
-      <main className="flex-1 relative flex">
+      <main className="flex-1 relative flex" ref={canvasRef}>
         <div className={`flex-1 transition-all ${showCodePreview || selectedNodeId ? 'w-1/2' : 'w-full'}`}>
           <ReactFlow
             nodes={nodes} edges={edges} onNodesChange={handleNodesChangeWithHistory} onEdgesChange={onEdgesChange}
             onConnect={onConnect} nodeTypes={nodeTypes} onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             onPaneClick={() => setSelectedNodeId(null)} fitView
+            onMouseMove={handleMouseMove}
+            minZoom={0.1} maxZoom={4}
           >
             <Background color="#1e293b" />
-            <Controls />
+            <Controls className="!bg-[#0f172a] !border-slate-800 !shadow-2xl" />
+            <MiniMap style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} nodeColor="#3b82f6" />
+            
+            {/* Render Remote Cursors */}
+            {Object.values(remoteCursors).map((c: any) => (
+                <Cursor key={c.user} x={c.x} y={c.y} color={getUserColor(c.user)} name={c.user} />
+            ))}
+
           </ReactFlow>
         </div>
 
@@ -286,5 +379,12 @@ const CollaborativeCanvas = ({ supabase, user, diagramId, onBack }: any) => {
     </div>
   );
 };
+
+// Wrapper to provide ReactFlow Context
+const CollaborativeCanvas = (props: any) => (
+  <ReactFlowProvider>
+    <CanvasContent {...props} />
+  </ReactFlowProvider>
+);
 
 export default CollaborativeCanvas;

@@ -5,11 +5,11 @@ import DiagramSelector from './components/DiagramSelector';
 import Auth from './components/Auth';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase (Replace with your project credentials)
-const supabase = createClient(
-  'https://your-project.supabase.co',
-  'your-anon-key'
-);
+// Initialize Supabase
+// NOTE: For production, use process.env.VITE_SUPABASE_URL and process.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'your-anon-key';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const App = () => {
   const [session, setSession] = useState<any>(null);
@@ -35,7 +35,13 @@ const App = () => {
     setCurrentDiagramId(null);
   };
 
-  if (loading) return <div className="h-screen w-screen bg-[#0b0f1a] flex items-center justify-center text-slate-500">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="h-screen w-screen bg-[#0b0f1a] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   if (!session) {
     return (

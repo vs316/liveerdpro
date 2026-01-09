@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ERDEntity } from '../types';
+import { ERDEntity, AttributeType } from '../types';
 
 interface SidebarProps {
   mode: 'inspect' | 'code';
@@ -11,12 +11,14 @@ interface SidebarProps {
   currentUser?: string;
 }
 
+const TYPES: AttributeType[] = ['INT', 'VARCHAR', 'BOOLEAN', 'TIMESTAMP', 'UUID', 'TEXT', 'DECIMAL', 'JSON', 'BIGINT', 'DATETIME'];
+
 const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, code, onClose, onUpdateEntity, currentUser }) => {
   const [tab, setTab] = useState<'details' | 'relations' | 'comments'>('details');
   const [newComment, setNewComment] = useState('');
   const [localDescription, setLocalDescription] = useState('');
 
-  // Sync local description with entity when selection changes
+  // Sync local description with entity when selection changes or external update occurs
   useEffect(() => {
     if (selectedEntity) {
       setLocalDescription(selectedEntity.description || '');
@@ -27,6 +29,35 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
     if (selectedEntity && localDescription !== selectedEntity.description) {
       onUpdateEntity(selectedEntity.id, { description: localDescription });
     }
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (selectedEntity) {
+        onUpdateEntity(selectedEntity.id, { name: e.target.value });
+    }
+  };
+
+  const updateAttribute = (attrId: string, updates: any) => {
+    if (!selectedEntity) return;
+    const newAttrs = selectedEntity.attributes.map(a => a.id === attrId ? { ...a, ...updates } : a);
+    onUpdateEntity(selectedEntity.id, { attributes: newAttrs });
+  };
+
+  const addAttribute = () => {
+    if (!selectedEntity) return;
+    const newAttr = { 
+      id: `attr_${Date.now()}`, 
+      name: 'new_column', 
+      type: 'VARCHAR' as AttributeType, 
+      isPrimary: false, 
+      isNullable: true 
+    };
+    onUpdateEntity(selectedEntity.id, { attributes: [...selectedEntity.attributes, newAttr] });
+  };
+
+  const removeAttribute = (attrId: string) => {
+    if (!selectedEntity) return;
+    onUpdateEntity(selectedEntity.id, { attributes: selectedEntity.attributes.filter(a => a.id !== attrId) });
   };
 
   const handlePostComment = () => {
@@ -48,7 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
     <div className="w-[450px] bg-[#080c14] border-l border-slate-800 flex flex-col animate-fade-in shadow-[-20px_0_50px_rgba(0,0,0,0.5)] z-50">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#0f172a]/50">
         <h2 className="text-[10px] font-black uppercase tracking-[3px] text-slate-500">
-          {mode === 'code' ? 'MySQL Live Synchronizer' : `Inspecting: ${selectedEntity?.name}`}
+          {mode === 'code' ? 'MySQL Live Synchronizer' : 'Table Properties'}
         </h2>
         <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -73,26 +104,87 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8">
-            {tab === 'details' && (
+            {tab === 'details' && selectedEntity && (
               <div className="space-y-6">
+                <div>
+                   <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Table Name</label>
+                   <input
+                        type="text"
+                        value={selectedEntity.name}
+                        onChange={handleNameChange}
+                        className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all placeholder:text-slate-600 text-white"
+                   />
+                </div>
                 <div>
                   <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Description</label>
                   <textarea 
-                    className="w-full h-32 bg-[#1e293b]/50 rounded-xl p-3 text-xs text-slate-300 focus:outline-none border border-slate-800 focus:border-blue-500/50 transition-colors placeholder:text-slate-600"
+                    className="w-full h-24 bg-[#1e293b]/50 rounded-xl p-3 text-xs text-slate-300 focus:outline-none border border-slate-800 focus:border-blue-500/50 transition-colors placeholder:text-slate-600HX resize-none"
                     placeholder="Describe the purpose of this table..."
                     value={localDescription}
                     onChange={(e) => setLocalDescription(e.target.value)}
                     onBlur={handleDescriptionBlur}
                   />
-                  <p className="text-[9px] text-slate-500 mt-1 text-right italic">Saved on blur</p>
                 </div>
                 <div>
-                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Columns</label>
+                  <div className="flex items-center justify-between mb-2">
+                     <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Columns</label>
+                     <button onClick={addAttribute} className="text-[10px] text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-500 px-2 py-1 rounded transition-all font-bold">+ Add Column</button>
+                  </div>
                   <div className="space-y-2">
-                    {selectedEntity?.attributes.map(a => (
-                      <div key={a.id} className="flex items-center justify-between p-3 bg-white/[0.02] border border-slate-800 rounded-lg">
-                        <span className="text-xs font-bold text-slate-200">{a.name}</span>
-                        <span className="text-[9px] font-mono text-slate-500">{a.type}</span>
+                    {selectedEntity.attributes.map(attr => (
+                      <div key={attr.id} className="p-3 bg-white/[0.02] border border-slate-800 rounded-lg group hover:border-slate-700 transition-colors relative">
+                        <button 
+                            onClick={() => removeAttribute(attr.id)}
+                            className="absolute -right-2 -top-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
+                            title="Remove Column"
+                        >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                        <div className="flex gap-2 mb-2">
+                            <input
+                                type="text"
+                                value={attr.name}
+                                onChange={(e) => updateAttribute(attr.id, { name: e.target.value })}
+                                className="flex-1 bg-transparent border-none p-0 text-xs font-bold focus:outline-none focus:ring-0 text-slate-200 placeholder:text-slate-600"
+                                placeholder="Column Name"
+                            />
+                            <select
+                                value={attr.type}
+                                onChange={(e) => updateAttribute(attr.id, { type: e.target.value })}
+                                className="bg-[#0f172a] border border-slate-700 text-[9px] rounded px-1.5 py-0.5 text-blue-400 font-mono focus:border-blue-500 focus:outline-none"
+                            >
+                                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex gap-4">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={attr.isPrimary}
+                                    onChange={(e) => updateAttribute(attr.id, { isPrimary: e.target.checked })}
+                                    className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0"
+                                />
+                                <span className={`text-[9px] font-bold ${attr.isPrimary ? 'text-amber-400' : 'text-slate-500'}`}>PK</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={attr.isNullable}
+                                    onChange={(e) => updateAttribute(attr.id, { isNullable: e.target.checked })}
+                                    className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0"
+                                />
+                                <span className="text-[9px] font-bold text-slate-500">Nullable</span>
+                            </label>
+                             <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={attr.autoIncrement}
+                                    onChange={(e) => updateAttribute(attr.id, { autoIncrement: e.target.checked })}
+                                    className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0"
+                                />
+                                <span className="text-[9px] font-bold text-slate-500">AI</span>
+                            </label>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -122,7 +214,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
               <div className="flex flex-col h-full">
                 <div className="flex-1 space-y-4 overflow-y-auto mb-4 min-h-[100px]">
                   {(selectedEntity?.comments || []).length === 0 && (
-                    <p className="text-xs text-slate-500 italic text-center py-4">No comments yet.</p>
+                    <p className="text-xs text-slate-500 italic text-center py-4">No comments yet. Start the discussion.</p>
                   )}
                   {(selectedEntity?.comments || []).map(c => (
                     <div key={c.id} className="space-y-1 animate-fade-in">
