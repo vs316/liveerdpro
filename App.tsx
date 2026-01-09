@@ -6,9 +6,10 @@ import Auth from './components/Auth';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase
-// NOTE: For production, use process.env.VITE_SUPABASE_URL and process.env.VITE_SUPABASE_ANON_KEY
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'your-anon-key';
+// NOTE: Use the "Publishable Key" from your Supabase settings.
+// WARNING: NEVER use the "Secret Key" (service_role) in this file. It is for backend servers only.
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co';
+const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'your-publishable-key';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const App = () => {

@@ -28,8 +28,8 @@ const EntityNode = ({ data, selected }: NodeProps) => {
                 <td className="pl-3 py-2 w-8 align-middle">
                   {attr.isPrimary ? (
                     <span className="text-amber-400 font-black text-[9px] drop-shadow-[0_0_5px_rgba(251,191,36,0.3)]" title="Primary Key">PK</span>
-                  ) : attr.name.toLowerCase().endsWith('_id') ? (
-                    <span className="text-blue-400 font-bold text-[9px]" title="Foreign Key">FK</span>
+                  ) : attr.isForeignKey ? (
+                    <span className="text-pink-400 font-bold text-[9px] drop-shadow-[0_0_5px_rgba(244,114,182,0.3)]" title="Foreign Key">FK</span>
                   ) : (
                     <span className="text-slate-700 opacity-40">•</span>
                   )}

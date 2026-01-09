@@ -26,11 +26,13 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [activeUsers, setActiveUsers] = useState<any[]>([]);
   const [remoteCursors, setRemoteCursors] = useState<{[key: string]: any}>({});
+  const [isSaving, setIsSaving] = useState(false);
   
-  const { project, getNodes } = useReactFlow();
+  const { project } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
   const lastCursorUpdate = useRef(0);
@@ -90,23 +92,9 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const now = Date.now();
     if (now - lastCursorUpdate.current > 30 && channelRef.current) {
-      // Get bounding box of the flow container to calculate relative position
       if (canvasRef.current) {
         const bounds = canvasRef.current.getBoundingClientRect();
-        // Calculate position relative to the canvas container (ReactFlow coordinates are different)
-        // We broadcast SCREEN (container) coordinates for simple overlay, 
-        // OR we can project to flow coordinates. 
-        // Using Container coordinates is easier for a simple overlay if all viewports match, 
-        // but flow coords are better for zoomed maps. 
-        // Let's stick to simple Flow coordinates for "Real" collaboration feeling if we could, 
-        // but `project` converts screen to flow.
         const position = project({ x: e.clientX - bounds.left, y: e.clientY - bounds.top });
-        
-        // HOWEVER, implementing shared viewport cursor requires broadcasting Viewport too.
-        // Simplest "Live" feel: Just broadcast raw relative coordinates within the container.
-        // This ensures if I point to top-left, you see me at top-left.
-        // To accurately point at a NODE, we need Flow coordinates.
-        // Let's use flow coordinates `position` derived from `project`.
         
         channelRef.current.send({
           type: 'broadcast',
@@ -115,8 +103,7 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
             x: position.x, 
             y: position.y, 
             user: user.email,
-            // Find my color from activeUsers (inefficient to search every frame, maybe store locally)
-            color: '#3b82f6' // Default fallback, activeUsers usually has it
+            color: '#3b82f6'
           }
         });
         lastCursorUpdate.current = now;
@@ -124,16 +111,9 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     }
   }, [project, user.email]);
 
-  // Cleanup old cursors (optional: remove cursor if no update for 5s)
-  useEffect(() => {
-    const interval = setInterval(() => {
-        // Implementation left simple for now
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
   // Save and History Logic
   const saveDiagram = useCallback(async (newNodes: any, newEdges: any) => {
+    setIsSaving(true);
     await supabase
       .from('diagrams')
       .update({ 
@@ -141,6 +121,7 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
         updated_at: new Date().toISOString() 
       })
       .eq('id', diagramId);
+    setTimeout(() => setIsSaving(false), 500);
   }, [diagramId]);
 
   const recordHistory = useCallback((newNodes: any, newEdges: any) => {
@@ -174,7 +155,6 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     }
   }, [history, historyIndex, saveDiagram, setNodes, setEdges]);
 
-  // Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -189,7 +169,6 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
         e.preventDefault();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
@@ -208,6 +187,30 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     });
   }, [edges, saveDiagram, recordHistory, setNodes]);
 
+  const handleUpdateEdge = useCallback((id: string, updates: any) => {
+    setEdges((eds) => {
+        const newEdges = eds.map((e) => {
+            if (e.id === id) {
+                return { ...e, ...updates };
+            }
+            return e;
+        });
+        saveDiagram(nodes, newEdges);
+        recordHistory(nodes, newEdges);
+        return newEdges;
+    });
+  }, [nodes, saveDiagram, recordHistory, setEdges]);
+
+  const handleDeleteEdge = useCallback((id: string) => {
+    setEdges((eds) => {
+        const newEdges = eds.filter(e => e.id !== id);
+        saveDiagram(nodes, newEdges);
+        recordHistory(nodes, newEdges);
+        return newEdges;
+    });
+    setSelectedEdgeId(null);
+  }, [nodes, saveDiagram, recordHistory, setEdges]);
+
   const mysqlCode = useMemo(() => {
     return nodes.map(n => {
       const d = n.data as ERDEntity;
@@ -218,8 +221,16 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
         if (a.autoIncrement) sql += ' AUTO_INCREMENT';
         if (a.isPrimary) sql += ' PRIMARY KEY';
         return sql;
-      }).join(',\n');
-      return `CREATE TABLE \`${d.name.toLowerCase()}\` (\n${cols}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`;
+      });
+      
+      // Add indexes for FKs for visibility in SQL
+      d.attributes.forEach(a => {
+        if (a.isForeignKey) {
+            cols.push(`  KEY \`fk_${a.name}\` (\`${a.name}\`)`);
+        }
+      });
+
+      return `CREATE TABLE \`${d.name.toLowerCase()}\` (\n${cols.join(',\n')}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`;
     }).join('\n\n');
   }, [nodes]);
 
@@ -228,7 +239,9 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
       const newEdges = addEdge({ 
         ...params, 
         animated: true, 
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' } 
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
+        type: 'smoothstep', // Default to smoothstep for ERD
+        label: '' // Initialize label
       }, eds);
       saveDiagram(nodes, newEdges);
       recordHistory(nodes, newEdges);
@@ -255,43 +268,26 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     a.click();
   };
 
-  const importJson = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const content = JSON.parse(ev.target?.result as string);
-          if (!Array.isArray(content.nodes) || !Array.isArray(content.edges)) {
-            alert('Invalid JSON: file must contain "nodes" and "edges" arrays.');
-            return;
-          }
-          setNodes(content.nodes);
-          setEdges(content.edges);
-          saveDiagram(content.nodes, content.edges);
-          recordHistory(content.nodes, content.edges);
-        } catch (err) { 
-          console.error(err);
-          alert("Failed to parse JSON file."); 
-        }
-      };
-      reader.readAsText(file);
-    }
-    e.target.value = '';
-  };
-
   const selectedEntity = useMemo(() => 
     nodes.find(n => n.id === selectedNodeId)?.data
   , [nodes, selectedNodeId]);
 
-  // Helper to find user color
+  const selectedEdge = useMemo(() => 
+    edges.find(e => e.id === selectedEdgeId)
+  , [edges, selectedEdgeId]);
+
   const getUserColor = (email: string) => {
     const u = activeUsers.find(u => u.user === email);
     return u?.color || '#10b981';
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#0b0f1a] overflow-hiddenQl text-slate-100">
+    <div className="flex h-screen w-screen bg-[#0b0f1a] overflow-hidden text-slate-100 relative">
+        {/* Saving Indicator */}
+        <div className={`absolute top-4 right-4 z-50 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${isSaving ? 'bg-blue-600 text-white opacity-100 translate-y-0' : 'bg-transparent text-slate-500 opacity-0 -translate-y-2'}`}>
+            {isSaving ? 'Saving...' : 'Saved'}
+        </div>
+
       {/* Workspace Sidebar */}
       <aside className="w-80 bg-[#0f172a] border-r border-slate-800 flex flex-col z-30 shadow-2xl">
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
@@ -326,29 +322,25 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
 
            <section className="space-y-4">
               <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Data Operations</h2>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={exportJson} className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 transition-colors text-slate-300 hover:text-white">Export JSON</button>
-                <label className="bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-slate-700 text-center cursor-pointer transition-colors text-slate-300 hover:text-white">
-                  Import JSON
-                  <input type="file" className="hidden" accept=".json" onChange={importJson} />
-                </label>
-              </div>
-              <button onClick={exportSql} className="w-full py-2 bg-blue-600/10 border border-blue-600/20 hover:bg-blue-600/20 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors">
-                Download MySQL
-              </button>
               <button onClick={() => setShowCodePreview(!showCodePreview)} className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors">
                  {showCodePreview ? 'Close Code Panel' : 'View Code Panel'}
+              </button>
+              <button onClick={exportSql} className="w-full py-2 bg-blue-600/10 border border-blue-600/20 hover:bg-blue-600/20 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors">
+                Download MySQL
               </button>
            </section>
         </div>
       </aside>
 
       <main className="flex-1 relative flex" ref={canvasRef}>
-        <div className={`flex-1 transition-all ${showCodePreview || selectedNodeId ? 'w-1/2' : 'w-full'}`}>
+        <div className={`flex-1 transition-all ${showCodePreview || selectedNodeId || selectedEdgeId ? 'w-1/2' : 'w-full'}`}>
           <ReactFlow
             nodes={nodes} edges={edges} onNodesChange={handleNodesChangeWithHistory} onEdgesChange={onEdgesChange}
-            onConnect={onConnect} nodeTypes={nodeTypes} onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            onPaneClick={() => setSelectedNodeId(null)} fitView
+            onConnect={onConnect} nodeTypes={nodeTypes} 
+            onNodeClick={(_, node) => { setSelectedNodeId(node.id); setSelectedEdgeId(null); }}
+            onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(null); }}
+            onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); }} 
+            fitView
             onMouseMove={handleMouseMove}
             minZoom={0.1} maxZoom={4}
           >
@@ -364,14 +356,17 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
           </ReactFlow>
         </div>
 
-        {(showCodePreview || selectedNodeId) && (
+        {(showCodePreview || selectedNodeId || selectedEdgeId) && (
           <Sidebar 
-            mode={selectedNodeId ? 'inspect' : 'code'}
+            mode={selectedNodeId || selectedEdgeId ? 'inspect' : 'code'}
             selectedEntity={selectedEntity}
+            selectedEdge={selectedEdge}
             relationships={edges.filter(e => e.source === selectedNodeId || e.target === selectedNodeId)}
             code={mysqlCode}
-            onClose={() => { setSelectedNodeId(null); setShowCodePreview(false); }}
+            onClose={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setShowCodePreview(false); }}
             onUpdateEntity={handleUpdateEntity}
+            onUpdateEdge={handleUpdateEdge}
+            onDeleteEdge={handleDeleteEdge}
             currentUser={user.email}
           />
         )}

@@ -5,6 +5,7 @@ export interface ERDAttribute {
   name: string;
   type: AttributeType;
   isPrimary: boolean;
+  isForeignKey?: boolean;
   isNullable: boolean;
   autoIncrement?: boolean;
 }

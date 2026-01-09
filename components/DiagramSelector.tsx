@@ -50,6 +50,20 @@ const DiagramSelector: React.FC<DiagramSelectorProps> = ({ supabase, user, onSel
     setCreating(false);
   };
 
+  const deleteDiagram = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this diagram?')) {
+        const { error } = await supabase
+            .from('diagrams')
+            .delete()
+            .eq('id', id);
+        
+        if (!error) {
+            setDiagrams(diagrams.filter(d => d.id !== id));
+        }
+    }
+  };
+
   return (
     <div className="h-screen w-screen bg-[#0b0f1a] flex flex-col overflow-hidden">
       <header className="h-16 border-b border-slate-800 bg-[#0f172a] flex items-center justify-between px-8">
@@ -102,8 +116,15 @@ const DiagramSelector: React.FC<DiagramSelectorProps> = ({ supabase, user, onSel
                 <div 
                   key={diagram.id}
                   onClick={() => onSelect(diagram.id)}
-                  className="bg-[#0f172a] border border-slate-800 rounded-xl p-6 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer transition-all group"
+                  className="bg-[#0f172a] border border-slate-800 rounded-xl p-6 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer transition-all group relative"
                 >
+                  <button 
+                    onClick={(e) => deleteDiagram(e, diagram.id)}
+                    className="absolute top-4 right-4 p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete Diagram"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
                   <div className="flex justify-between items-start mb-4">
                     <div className="p-3 bg-blue-500/10 rounded-lg group-hover:bg-blue-600 group-hover:text-white text-blue-400 transition-colors">
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>

@@ -4,21 +4,35 @@ import { ERDEntity, AttributeType } from '../types';
 interface SidebarProps {
   mode: 'inspect' | 'code';
   selectedEntity?: ERDEntity;
+  selectedEdge?: any;
   relationships?: any[];
   code?: string;
   onClose: () => void;
   onUpdateEntity: (id: string, updates: Partial<ERDEntity>) => void;
+  onUpdateEdge?: (id: string, updates: any) => void;
+  onDeleteEdge?: (id: string) => void;
   currentUser?: string;
 }
 
 const TYPES: AttributeType[] = ['INT', 'VARCHAR', 'BOOLEAN', 'TIMESTAMP', 'UUID', 'TEXT', 'DECIMAL', 'JSON', 'BIGINT', 'DATETIME'];
 
-const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, code, onClose, onUpdateEntity, currentUser }) => {
+const Sidebar: React.FC<SidebarProps> = ({ 
+  mode, 
+  selectedEntity, 
+  selectedEdge,
+  relationships, 
+  code, 
+  onClose, 
+  onUpdateEntity, 
+  onUpdateEdge,
+  onDeleteEdge,
+  currentUser 
+}) => {
   const [tab, setTab] = useState<'details' | 'relations' | 'comments'>('details');
   const [newComment, setNewComment] = useState('');
   const [localDescription, setLocalDescription] = useState('');
 
-  // Sync local description with entity when selection changes or external update occurs
+  // Sync local description
   useEffect(() => {
     if (selectedEntity) {
       setLocalDescription(selectedEntity.description || '');
@@ -50,6 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
       name: 'new_column', 
       type: 'VARCHAR' as AttributeType, 
       isPrimary: false, 
+      isForeignKey: false,
       isNullable: true 
     };
     onUpdateEntity(selectedEntity.id, { attributes: [...selectedEntity.attributes, newAttr] });
@@ -74,6 +89,54 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
     onUpdateEntity(selectedEntity.id, { comments: updatedComments });
     setNewComment('');
   };
+
+  // Render Edge Editor if an edge is selected
+  if (selectedEdge && !selectedEntity && mode !== 'code') {
+    return (
+      <div className="w-[450px] bg-[#080c14] border-l border-slate-800 flex flex-col animate-fade-in shadow-[-20px_0_50px_rgba(0,0,0,0.5)] z-50">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-[#0f172a]/50">
+          <h2 className="text-[10px] font-black uppercase tracking-[3px] text-slate-500">
+            Relationship
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-6">
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Label</label>
+            <input
+              type="text"
+              value={selectedEdge.label || ''}
+              onChange={(e) => onUpdateEdge?.(selectedEdge.id, { label: e.target.value })}
+              placeholder="e.g. has many, belongs to"
+              className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all placeholder:text-slate-600 text-white"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Type (Line Style)</label>
+            <select
+                value={selectedEdge.type || 'smoothstep'}
+                onChange={(e) => onUpdateEdge?.(selectedEdge.id, { type: e.target.value })}
+                className="w-full bg-[#1e293b] border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            >
+                <option value="smoothstep">Step (Orthogonal)</option>
+                <option value="default">Bezier (Curved)</option>
+                <option value="straight">Straight</option>
+            </select>
+          </div>
+          <div className="pt-4 border-t border-slate-800">
+             <button 
+                onClick={() => onDeleteEdge?.(selectedEdge.id)}
+                className="w-full py-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-lg text-xs font-bold transition-all border border-red-500/20"
+             >
+                Delete Relationship
+             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-[450px] bg-[#080c14] border-l border-slate-800 flex flex-col animate-fade-in shadow-[-20px_0_50px_rgba(0,0,0,0.5)] z-50">
@@ -156,7 +219,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
                                 {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 flex-wrap">
                             <label className="flex items-center gap-1.5 cursor-pointer">
                                 <input
                                     type="checkbox"
@@ -165,6 +228,15 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
                                     className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0"
                                 />
                                 <span className={`text-[9px] font-bold ${attr.isPrimary ? 'text-amber-400' : 'text-slate-500'}`}>PK</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={attr.isForeignKey}
+                                    onChange={(e) => updateAttribute(attr.id, { isForeignKey: e.target.checked })}
+                                    className="w-3 h-3 rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0"
+                                />
+                                <span className={`text-[9px] font-bold ${attr.isForeignKey ? 'text-pink-400' : 'text-slate-500'}`}>FK</span>
                             </label>
                             <label className="flex items-center gap-1.5 cursor-pointer">
                                 <input
@@ -192,7 +264,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
               </div>
             )}
 
-            {tab === 'relations' && (
+            {tab === 'relations' && selectedEntity && (
               <div className="space-y-4">
                 {relationships?.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No direct relationships found.</p>
@@ -202,7 +274,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
                       <div className="bg-blue-600/20 p-2 rounded-lg"><svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg></div>
                       <div>
                         <p className="text-xs font-bold text-slate-200">{r.label || 'Connected'}</p>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-tighter">Relation ID: {r.id}</p>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-tighter">Target: {r.target}</p>
                       </div>
                     </div>
                   ))
@@ -210,7 +282,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mode, selectedEntity, relationships, 
               </div>
             )}
 
-            {tab === 'comments' && (
+            {tab === 'comments' && selectedEntity && (
               <div className="flex flex-col h-full">
                 <div className="flex-1 space-y-4 overflow-y-auto mb-4 min-h-[100px]">
                   {(selectedEntity?.comments || []).length === 0 && (
