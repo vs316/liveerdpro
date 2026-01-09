@@ -36,6 +36,7 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
   const lastCursorUpdate = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // History State for Undo/Redo
   const [history, setHistory] = useState<any[]>([]);
@@ -211,6 +212,37 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     setSelectedEdgeId(null);
   }, [nodes, saveDiagram, recordHistory, setEdges]);
 
+  const addNode = useCallback(() => {
+    const id = `node_${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type: 'entity',
+      position: { x: Math.random() * 300 + 100, y: Math.random() * 300 + 100 },
+      data: { 
+        name: `Table_${Math.floor(Math.random() * 1000)}`, 
+        attributes: [
+          { 
+            id: `attr_${Date.now()}_1`, 
+            name: 'id', 
+            type: 'UUID', 
+            isPrimary: true, 
+            isNullable: false,
+            isForeignKey: false,
+            autoIncrement: false
+          }
+        ],
+        comments: []
+      }
+    };
+    
+    setNodes((nds) => {
+      const newNodes = [...nds, newNode];
+      saveDiagram(newNodes, edges);
+      recordHistory(newNodes, edges);
+      return newNodes;
+    });
+  }, [edges, saveDiagram, recordHistory, setNodes]);
+
   const mysqlCode = useMemo(() => {
     return nodes.map(n => {
       const d = n.data as ERDEntity;
@@ -240,8 +272,8 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
         ...params, 
         animated: true, 
         markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
-        type: 'smoothstep', // Default to smoothstep for ERD
-        label: '' // Initialize label
+        type: 'smoothstep', 
+        label: '' 
       }, eds);
       saveDiagram(nodes, newEdges);
       recordHistory(nodes, newEdges);
@@ -257,6 +289,33 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
     a.href = url;
     a.download = `erd_export_${Date.now()}.json`;
     a.click();
+  };
+
+  const importJson = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const result = e.target?.result as string;
+        const parsedData = JSON.parse(result);
+        if (parsedData.nodes && parsedData.edges) {
+          setNodes(parsedData.nodes);
+          setEdges(parsedData.edges);
+          saveDiagram(parsedData.nodes, parsedData.edges);
+          recordHistory(parsedData.nodes, parsedData.edges);
+        } else {
+          alert('Invalid diagram file format. JSON must contain "nodes" and "edges" arrays.');
+        }
+      } catch (error) {
+        console.error('Error importing diagram:', error);
+        alert('Failed to parse file. Please ensure it is a valid JSON file.');
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input
+    event.target.value = '';
   };
 
   const exportSql = () => {
@@ -321,11 +380,46 @@ const CanvasContent = ({ supabase, user, diagramId, onBack }: any) => {
            </section>
 
            <section className="space-y-4">
+              <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Design</h2>
+              <button 
+                onClick={addNode}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
+                Add Table
+              </button>
+           </section>
+
+           <section className="space-y-4">
               <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Data Operations</h2>
+              
               <button onClick={() => setShowCodePreview(!showCodePreview)} className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors">
                  {showCodePreview ? 'Close Code Panel' : 'View Code Panel'}
               </button>
-              <button onClick={exportSql} className="w-full py-2 bg-blue-600/10 border border-blue-600/20 hover:bg-blue-600/20 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors">
+              
+              <div className="grid grid-cols-2 gap-2">
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  onChange={importJson}
+                  accept=".json"
+                  className="hidden"
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                >
+                  Import JSON
+                </button>
+                <button 
+                  onClick={exportJson}
+                  className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                >
+                  Export JSON
+                </button>
+              </div>
+
+              <button onClick={exportSql} className="w-full py-2 bg-slate-800/50 border border-slate-800 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-colors">
                 Download MySQL
               </button>
            </section>
